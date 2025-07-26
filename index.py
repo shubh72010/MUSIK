@@ -426,3 +426,47 @@ def run_web_server():
     # Use 0.0.0.0 to bind to all available network interfaces
     # Render provides PORT, default to 8080 for local testing
     PORT = int(os.getenv("PORT", "8080")) 
+    
+    # Using socketserver.TCPServer to avoid blocking the main thread
+    # Setting allow_reuse_address to True helps with restarts
+    with socketserver.TCPServer(("", PORT), HealthCheckHandler) as httpd:
+        print(f"Web server serving health check on port {PORT}")
+        # serve_forever() blocks, so run this in a separate thread
+        httpd.serve_forever()
+
+
+# --- Run the Bot ---
+if __name__ == '__main__':
+    # Start the web server in a separate daemon thread
+    # It needs to start before bot.run()
+    web_server_thread = threading.Thread(target=run_web_server)
+    web_server_thread.daemon = True # Allows the main program to exit even if this thread is running
+    web_server_thread.start()
+    
+    if TOKEN is None:
+        print("\n--- ERROR ---")
+        print("DISCORD_BOT_TOKEN environment variable not set. Please set it on Render or your local environment.")
+        print("-----------------\n")
+    else:
+        print("\n--- STARTING BOT ---")
+        print("Using Web Service deployment on Render (requires simple web server for health checks).")
+        print("Ensure you have installed all prerequisites:")
+        print("1. Python libraries: `pip install discord.py PyNaCl yt-dlp` (handled by requirements.txt on Render)")
+        print("2. FFmpeg: Should be available on Render's environment. No manual install needed usually.")
+        print("3. Discord Bot Intents: 'Message Content Intent' and 'Voice State Intent' enabled in Developer Portal.")
+        print("4. Bot token is correctly set as an environment variable (DISCORD_BOT_TOKEN).")
+        print("-----------------\n")
+        try:
+            bot.run(TOKEN)
+        except discord.LoginFailure:
+            print("\n--- LOGIN FAILED ---")
+            print("Invalid Bot Token provided. Check your DISCORD_BOT_TOKEN environment variable.")
+            print("--------------------\n")
+        except Exception as e:
+            print(f"\n--- AN UNEXPECTED ERROR OCCURRED DURING BOT STARTUP ---")
+            print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
+            print("------------------------------------------------------\n")
+
+ 
