@@ -3,12 +3,9 @@ require('dotenv').config();
 
 // Import necessary Discord.js classes
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-// --- CHANGE START ---
-// Add StreamType to the import from @discordjs/voice
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
-// --- CHANGE END ---
 const play = require('play-dl');
-const ffmpegStatic = require('ffmpeg-static');
+const ffmpegStatic = require('ffmpeg-static'); // Import ffmpeg-static to get the path
 const youtubeDl = require('youtube-dl-exec');
 
 // Import Node.js built-in modules for HTTP server (for Render Web Service)
@@ -62,20 +59,23 @@ async function playNextSong(guildId, textChannel) {
     console.log(`[${textChannel.guild.name}] Playing: ${song.title}`);
 
     try {
+        // --- CHANGE START ---
         const stream = youtubeDl.exec(song.url, {
             output: '-', // Output to stdout
             quiet: true, // Suppress console output
-            format: 'bestaudio[ext=webm+acodec=opus]/bestaudio/best', // Prioritize opus in webm, then best audio
+            // Request best audio, preferring opus if available, otherwise just best audio
+            format: 'bestaudio[ext=webm+acodec=opus]/bestaudio',
+            // Explicitly tell youtube-dl-exec where to find FFmpeg
+            ffmpegPath: ffmpegStatic,
         }, {
-            stdio: ['ignore', 'pipe', 'ignore'], // Stdin: ignore, Stdout: pipe, Stderr: ignore
+            // stdio configuration remains the same
+            stdio: ['ignore', 'pipe', 'ignore'],
         });
+        // --- CHANGE END ---
 
-        // --- CHANGE START ---
-        // Use StreamType from @discordjs/voice directly
         const resource = createAudioResource(stream.stdout, {
             inputType: StreamType.Arbitrary,
         });
-        // --- CHANGE END ---
 
         player.play(resource);
 
@@ -85,10 +85,11 @@ async function playNextSong(guildId, textChannel) {
             playNextSong(guildId, textChannel);
         });
 
+        // Crucial for debugging: This catches errors during actual playback
         player.on('error', error => {
             console.error(`[${textChannel.guild.name}] Audio player error:`, error);
             textChannel.send(`An error occurred during playback of **${song.title}**: ${error.message}`);
-            playNextSong(guildId, textChannel);
+            playNextSong(guildId, textChannel); // Try playing the next song
         });
 
     } catch (error) {
@@ -242,7 +243,6 @@ client.on('messageCreate', async message => {
             console.log(`[${message.guild.name}] Searching for: ${searchString}`);
 
             try {
-                // Reverted to searching all sources to get a more reliable result
                 let results = await play.search(searchString, { limit: 1 });
 
                 if (!results || results.length === 0) {
@@ -304,7 +304,7 @@ client.on('messageCreate', async message => {
             }
             startAutoDisconnectTask(guildId, message.channel);
             message.channel.send('Stopped playback.');
-            console.log(`[${message.guild.name}] Playback stopped.`);
+                console.log(`[${message.guild.name}] Playback stopped.`);
             break;
 
         case 'skip':
