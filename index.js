@@ -232,15 +232,16 @@ client.on('messageCreate', async message => {
             }
 
             const searchString = args.join(' ');
-            message.channel.send(`Searching for **${searchString}** on SoundCloud...`);
-            console.log(`[${message.guild.name}] Searching for: ${searchString} on SoundCloud`);
+            // Revert back to searching all sources, including YouTube
+            message.channel.send(`Searching for **${searchString}**...`);
+            console.log(`[${message.guild.name}] Searching for: ${searchString}`);
 
             try {
-                // This line is specifically configured to search ONLY SoundCloud tracks
-                let results = await play.search(searchString, { limit: 1, source: { soundcloud: "tracks" } });
+                // --- REVERTED LINE: Search all sources ---
+                let results = await play.search(searchString, { limit: 1 });
 
                 if (!results || results.length === 0) {
-                    return message.reply(`Could not find any SoundCloud results for **${searchString}**. Please try a different query.`);
+                    return message.reply(`Could not find any results for **${searchString}**. Please try a different query.`);
                 }
                 const songInfo = {
                     title: results[0].title,
