@@ -4,7 +4,8 @@ require('dotenv').config();
 // Import necessary Discord.js classes
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-const ytdl = require('ytdl-core'); // For YouTube streaming
+// const ytdl = require('ytdl-core'); // REMOVED: No longer using ytdl-core
+const play = require('play-dl'); // NEW: Import play-dl
 const ffmpegStatic = require('ffmpeg-static'); // Ensures FFmpeg is available
 
 // Import Node.js built-in modules for HTTP server (for Render Web Service)
@@ -58,10 +59,12 @@ async function playNextSong(guildId, textChannel) {
     console.log(`[${textChannel.guild.name}] Playing: ${song.title}`);
 
     try {
-        // Create an audio resource from the YouTube URL
-        // ytdl-core automatically uses ffmpeg-static if available
-        const stream = ytdl(song.url, { filter: 'audioonly', quality: 'highestaudio', highWaterMark: 1 << 25 });
-        const resource = createAudioResource(stream);
+        // --- CHANGE START: Using play-dl for stream ---
+        const stream = await play.stream(song.url); // play-dl stream function
+        const resource = createAudioResource(stream.stream, {
+            inputType: stream.type
+        });
+        // --- CHANGE END ---
 
         player.play(resource);
 
@@ -236,16 +239,16 @@ client.on('messageCreate', async message => {
             console.log(`[${message.guild.name}] Searching for: ${searchString}`);
 
             try {
-                // ytdl-core can also take a search query, but it's often better to use a dedicated search library
-                // For simplicity here, we'll assume a direct URL or rely on ytdl's limited search capability
-                // For more robust search, you'd integrate a YouTube Data API library (e.g., Youtube-without-api-key or actual YouTube Data API)
-                const info = await ytdl.getInfo(searchString); // This works for URLs, or tries its best for queries
-                const videoTitle = info.videoDetails.title;
-                const videoUrl = info.videoDetails.video_url;
+                // Use play.search for searching and then play the first result
+                let results = await play.search(searchString, { limit: 1 });
+                if (!results || results.length === 0) {
+                    return message.reply(`Could not find any results for **${searchString}**. Please try a different query.`);
+                }
+                const video = results[0];
                 
                 const songInfo = {
-                    title: videoTitle,
-                    url: videoUrl,
+                    title: video.title,
+                    url: video.url,
                     requester: message.author,
                 };
 
