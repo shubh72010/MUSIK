@@ -210,12 +210,24 @@ client.on('messageCreate', async message => {
 
             // If bot not in VC, join first
             if (!connection || connection.state.status === 'destroyed') {
-                await client.commands.get('join').execute(message, []); // Use the 'join' command
-                await new Promise(resolve => setTimeout(resolve, 1500)); // Small delay for connection
-                connection = client.voiceConnections.get(guildId);
-                player = client.audioPlayers.get(guildId);
-                if (!connection || connection.state.status === 'destroyed') {
-                    return message.channel.send("I couldn't join your voice channel. Please try `!join` first manually if problems persist.");
+                // This is a simplified way to call 'join' as if it were a command.
+                // In a more complex bot, you'd structure commands differently.
+                // For now, it will try to join, then proceed.
+                try {
+                    connection = joinVoiceChannel({
+                        channelId: voiceChannel.id,
+                        guildId: voiceChannel.guild.id,
+                        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                        selfDeaf: true,
+                    });
+                    client.voiceConnections.set(guildId, connection);
+                    player = createAudioPlayer();
+                    client.audioPlayers.set(guildId, player);
+                    connection.subscribe(player);
+                    message.channel.send(`Joined **${voiceChannel.name}** to play music.`);
+                } catch (error) {
+                    console.error(`[${message.guild.name}] Error joining voice channel before play:`, error);
+                    return message.channel.send("I couldn't join your voice channel to play music. Please ensure I have permissions.");
                 }
             }
 
@@ -326,9 +338,13 @@ client.on('messageCreate', async message => {
             // In discord.js v13+, the resource doesn't directly hold the original song info.
             // You might need to store the current song info separately if you want to display it,
             // or rely on a wrapper that adds this data.
-            // For now, we'll assume `playNextSong` would set a `client.currentSong[guildId]` for this.
-            // As a fallback, we'll show if a song is playing.
-            message.channel.send("A song is currently playing!");
+            // For now, we'll show if a song is playing, or if we stored current info.
+            const currentSong = queue && queue.currentSong; // Placeholder if you add this logic
+            if (currentSong) {
+                 message.channel.send(`**Now Playing:** \`${currentSong.title}\` (Requested by: ${currentSong.requester.tag})`);
+            } else {
+                 message.channel.send("A song is currently playing!");
+            }
             console.log(`[${message.guild.name}] Now playing status requested.`);
             break;
 
