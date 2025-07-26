@@ -3,10 +3,13 @@ require('dotenv').config();
 
 // Import necessary Discord.js classes
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-const play = require('play-dl'); // Keep play-dl for searching
-const ffmpegStatic = require('ffmpeg-static'); // Ensures FFmpeg is available
-const youtubeDl = require('youtube-dl-exec'); // Import youtube-dl-exec
+// --- CHANGE START ---
+// Add StreamType to the import from @discordjs/voice
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+// --- CHANGE END ---
+const play = require('play-dl');
+const ffmpegStatic = require('ffmpeg-static');
+const youtubeDl = require('youtube-dl-exec');
 
 // Import Node.js built-in modules for HTTP server (for Render Web Service)
 const http = require('http');
@@ -67,9 +70,12 @@ async function playNextSong(guildId, textChannel) {
             stdio: ['ignore', 'pipe', 'ignore'], // Stdin: ignore, Stdout: pipe, Stderr: ignore
         });
 
+        // --- CHANGE START ---
+        // Use StreamType from @discordjs/voice directly
         const resource = createAudioResource(stream.stdout, {
-            inputType: play.StreamType.Arbitrary,
+            inputType: StreamType.Arbitrary,
         });
+        // --- CHANGE END ---
 
         player.play(resource);
 
@@ -232,12 +238,11 @@ client.on('messageCreate', async message => {
             }
 
             const searchString = args.join(' ');
-            // Revert back to searching all sources, including YouTube
             message.channel.send(`Searching for **${searchString}**...`);
             console.log(`[${message.guild.name}] Searching for: ${searchString}`);
 
             try {
-                // --- REVERTED LINE: Search all sources ---
+                // Reverted to searching all sources to get a more reliable result
                 let results = await play.search(searchString, { limit: 1 });
 
                 if (!results || results.length === 0) {
