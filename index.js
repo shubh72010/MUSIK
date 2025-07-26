@@ -4,8 +4,9 @@ require('dotenv').config();
 // Import necessary Discord.js classes
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-const play = require('play-dl'); // NEW: Import play-dl
+const play = require('play-dl'); // Keep play-dl for searching
 const ffmpegStatic = require('ffmpeg-static'); // Ensures FFmpeg is available
+const youtubeDl = require('youtube-dl-exec'); // Import youtube-dl-exec
 
 // Import Node.js built-in modules for HTTP server (for Render Web Service)
 const http = require('http');
@@ -58,9 +59,16 @@ async function playNextSong(guildId, textChannel) {
     console.log(`[${textChannel.guild.name}] Playing: ${song.title}`);
 
     try {
-        const stream = await play.stream(song.url); // play-dl stream function
-        const resource = createAudioResource(stream.stream, {
-            inputType: stream.type
+        const stream = youtubeDl.exec(song.url, {
+            output: '-', // Output to stdout
+            quiet: true, // Suppress console output
+            format: 'bestaudio[ext=webm+acodec=opus]/bestaudio/best', // Prioritize opus in webm, then best audio
+        }, {
+            stdio: ['ignore', 'pipe', 'ignore'], // Stdin: ignore, Stdout: pipe, Stderr: ignore
+        });
+
+        const resource = createAudioResource(stream.stdout, {
+            inputType: play.StreamType.Arbitrary,
         });
 
         player.play(resource);
@@ -74,7 +82,6 @@ async function playNextSong(guildId, textChannel) {
         player.on('error', error => {
             console.error(`[${textChannel.guild.name}] Audio player error:`, error);
             textChannel.send(`An error occurred during playback of **${song.title}**: ${error.message}`);
-            // Attempt to play next song on error
             playNextSong(guildId, textChannel);
         });
 
@@ -146,10 +153,9 @@ client.on('messageCreate', async message => {
                 if (connection.joinConfig.channelId === voiceChannel.id) {
                     return message.reply(`I'm already in **${voiceChannel.name}**.`);
                 } else {
-                    // Move to new channel
-                    connection.destroy(); // Destroy existing connection to rejoin
+                    connection.destroy();
                     client.voiceConnections.delete(guildId);
-                    client.audioPlayers.delete(guildId); // Clear old player too
+                    client.audioPlayers.delete(guildId);
                 }
             }
 
@@ -157,22 +163,20 @@ client.on('messageCreate', async message => {
                 channelId: voiceChannel.id,
                 guildId: voiceChannel.guild.id,
                 adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                selfDeaf: true, // Keep bot deafened by default
+                selfDeaf: true,
             });
             client.voiceConnections.set(guildId, connection);
 
-            // Create an audio player for this guild
             player = createAudioPlayer();
             client.audioPlayers.set(guildId, player);
             
-            // Subscribe the connection to the player
             connection.subscribe(player);
 
             message.channel.send(`Joined **${voiceChannel.name}**.`);
             console.log(`[${message.guild.name}] Joined voice channel: ${voiceChannel.name}`);
 
             if (!queue) {
-                client.musicQueues.set(guildId, []); // Initialize queue if it doesn't exist
+                client.musicQueues.set(guildId, []);
             }
             break;
 
@@ -182,11 +186,11 @@ client.on('messageCreate', async message => {
             }
 
             if (player) {
-                player.stop(); // Stop current playback
+                player.stop();
                 client.audioPlayers.delete(guildId);
             }
             if (queue) {
-                client.musicQueues.delete(guildId); // Clear queue
+                client.musicQueues.delete(guildId);
                 message.channel.send("Queue cleared.");
             }
             if (client.disconnectTimers.has(guildId)) {
@@ -194,7 +198,7 @@ client.on('messageCreate', async message => {
                 client.disconnectTimers.delete(guildId);
             }
 
-            connection.destroy(); // Disconnect from voice
+            connection.destroy();
             client.voiceConnections.delete(guildId);
             message.channel.send('Left the voice channel.');
             console.log(`[${message.guild.name}] Left voice channel.`);
@@ -208,11 +212,7 @@ client.on('messageCreate', async message => {
                 return message.reply('You need to provide a search query!');
             }
 
-            // If bot not in VC, join first
             if (!connection || connection.state.status === 'destroyed') {
-                // This is a simplified way to call 'join' as if it were a command.
-                // In a more complex bot, you'd structure commands differently.
-                // For now, it will try to join, then proceed.
                 try {
                     connection = joinVoiceChannel({
                         channelId: voiceChannel.id,
@@ -232,20 +232,19 @@ client.on('messageCreate', async message => {
             }
 
             const searchString = args.join(' ');
-            message.channel.send(`Searching for **${searchString}**...`);
-            console.log(`[${message.guild.name}] Searching for: ${searchString}`);
+            message.channel.send(`Searching for **${searchString}** on SoundCloud...`);
+            console.log(`[${message.guild.name}] Searching for: ${searchString} on SoundCloud`);
 
             try {
-                // Use play.search for searching and then play the first result
-                let results = await play.search(searchString, { limit: 1 }); // <-- THIS IS THE KEY PART
+                // This line is specifically configured to search ONLY SoundCloud tracks
+                let results = await play.search(searchString, { limit: 1, source: { soundcloud: "tracks" } });
+
                 if (!results || results.length === 0) {
-                    return message.reply(`Could not find any results for **${searchString}**. Please try a different query.`);
+                    return message.reply(`Could not find any SoundCloud results for **${searchString}**. Please try a different query.`);
                 }
-                const video = results[0];
-                
                 const songInfo = {
-                    title: video.title,
-                    url: video.url, // <-- USES THE URL FROM THE SEARCH RESULT
+                    title: results[0].title,
+                    url: results[0].url,
                     requester: message.author,
                 };
 
@@ -291,13 +290,13 @@ client.on('messageCreate', async message => {
             if (!player || (player.state.status !== AudioPlayerStatus.Playing && player.state.status !== AudioPlayerStatus.Paused)) {
                 return message.reply('Nothing is currently playing.');
             }
-            player.stop(); // Stops playback immediately
+            player.stop();
             if (queue) {
-                queue.length = 0; // Clear the queue
+                queue.length = 0;
                 message.channel.send('Queue cleared.');
                 console.log(`[${message.guild.name}] Queue cleared.`);
             }
-            startAutoDisconnectTask(guildId, message.channel); // Schedule disconnect
+            startAutoDisconnectTask(guildId, message.channel);
             message.channel.send('Stopped playback.');
             console.log(`[${message.guild.name}] Playback stopped.`);
             break;
@@ -306,7 +305,6 @@ client.on('messageCreate', async message => {
             if (!player || (player.state.status !== AudioPlayerStatus.Playing && player.state.status !== AudioPlayerStatus.Paused)) {
                 return message.reply('No song is currently playing to skip.');
             }
-            // Stop the current song; the 'Idle' event listener will call playNextSong
             player.stop();
             message.channel.send('Skipped current song.');
             console.log(`[${message.guild.name}] Skipped current song.`);
@@ -335,10 +333,6 @@ client.on('messageCreate', async message => {
             if (!player || player.state.status === AudioPlayerStatus.Idle) {
                 return message.channel.send("Nothing is currently playing.");
             }
-            // In discord.js v13+, the resource doesn't directly hold the original song info.
-            // You might need to store the current song info separately if you want to display it,
-            // or rely on a wrapper that adds this data.
-            // For now, we'll show if a song is playing, or if we stored current info.
             const currentSong = queue && queue.currentSong; // Placeholder if you add this logic
             if (currentSong) {
                  message.channel.send(`**Now Playing:** \`${currentSong.title}\` (Requested by: ${currentSong.requester.tag})`);
@@ -366,22 +360,18 @@ client.on('messageCreate', async message => {
             if (!queue || queue.length === 0) {
                 return message.reply("The queue is already empty.");
             }
-            queue.length = 0; // Clears the array
+            queue.length = 0;
             message.channel.send("The entire queue has been cleared.");
             console.log(`[${message.guild.name}] Entire queue cleared.`);
             break;
 
         default:
-            // Optionally, handle unknown commands
-            // message.reply(`Unknown command. Use \`${COMMAND_PREFIX}help\` for a list of commands.`);
             break;
     }
 });
 
 // --- Render Web Service Health Check ---
-// This simple HTTP server will respond to Render's health checks, keeping the service alive.
 const server = http.createServer((req, res) => {
-    // Only respond to root path for health checks
     if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('Bot is alive!');
@@ -391,9 +381,8 @@ const server = http.createServer((req, res) => {
     }
 });
 
-const port = process.env.PORT || 8080; // Render sets PORT env variable
+const port = process.env.PORT || 8080;
 
-// Start the web server
 server.listen(port, () => {
     console.log(`Web server listening on port ${port} for Render health checks.`);
 });
@@ -407,7 +396,7 @@ if (!TOKEN) {
     console.log("\n--- STARTING BOT ---");
     console.log("Using Web Service deployment on Render (requires simple web server for health checks).");
     console.log("Ensure you have installed all prerequisites:");
-    console.log("1. Node.js packages: `npm install discord.js dotenv @discordjs/voice play-dl ffmpeg-static @ffmpeg-installer/ffmpeg` (handled by Render's build process)");
+    console.log("1. Node.js packages: `npm install discord.js dotenv @discordjs/voice play-dl ffmpeg-static youtube-dl-exec @ffmpeg-installer/ffmpeg` (handled by Render's build process)");
     console.log("2. FFmpeg: `ffmpeg-static` should provide it, or Render's environment often has it.");
     console.log("3. Discord Bot Intents: 'Message Content Intent' and 'Voice State Intent' enabled in Developer Portal.");
     console.log("4. Bot token is correctly set as an environment variable (DISCORD_BOT_TOKEN).");
@@ -417,6 +406,6 @@ if (!TOKEN) {
         console.error("Invalid Bot Token provided or network error. Check your DISCORD_BOT_TOKEN environment variable.");
         console.error(`Error: ${err.message}`);
         console.error("--------------------\n");
-        process.exit(1); // Exit process on login failure
+        process.exit(1);
     });
 }
