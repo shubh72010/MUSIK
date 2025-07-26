@@ -5,7 +5,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const play = require('play-dl');
-const ffmpegStatic = require('ffmpeg-static'); // Import ffmpeg-static to get the path
+const ffmpegStatic = require('ffmpeg-static');
 const youtubeDl = require('youtube-dl-exec');
 
 // Import Node.js built-in modules for HTTP server (for Render Web Service)
@@ -59,19 +59,14 @@ async function playNextSong(guildId, textChannel) {
     console.log(`[${textChannel.guild.name}] Playing: ${song.title}`);
 
     try {
-        // --- CHANGE START ---
         const stream = youtubeDl.exec(song.url, {
             output: '-', // Output to stdout
             quiet: true, // Suppress console output
-            // Request best audio, preferring opus if available, otherwise just best audio
             format: 'bestaudio[ext=webm+acodec=opus]/bestaudio',
-            // Explicitly tell youtube-dl-exec where to find FFmpeg
             ffmpegPath: ffmpegStatic,
         }, {
-            // stdio configuration remains the same
             stdio: ['ignore', 'pipe', 'ignore'],
         });
-        // --- CHANGE END ---
 
         const resource = createAudioResource(stream.stdout, {
             inputType: StreamType.Arbitrary,
@@ -79,28 +74,26 @@ async function playNextSong(guildId, textChannel) {
 
         player.play(resource);
 
-        // Listen for player state changes
         player.once(AudioPlayerStatus.Idle, () => {
             console.log(`[${textChannel.guild.name}] Song finished, playing next.`);
             playNextSong(guildId, textChannel);
         });
 
-        // Crucial for debugging: This catches errors during actual playback
         player.on('error', error => {
             console.error(`[${textChannel.guild.name}] Audio player error:`, error);
             textChannel.send(`An error occurred during playback of **${song.title}**: ${error.message}`);
-            playNextSong(guildId, textChannel); // Try playing the next song
+            playNextSong(guildId, textChannel);
         });
 
     } catch (error) {
         textChannel.send(`Error playing **${song.title}**: ${error.message}`);
         console.error(`[${textChannel.guild.name}] Error creating audio resource:`, error);
-        playNextSong(guildId, textChannel); // Try playing the next song
+        playNextSong(guildId, textChannel);
     }
 }
 
 function startAutoDisconnectTask(guildId, textChannel, delayMinutes = 5) {
-    const delayMs = delayMinutes * 60 * 1000; // Convert minutes to milliseconds
+    const delayMs = delayMinutes * 60 * 1000;
 
     const timer = setTimeout(async () => {
         const connection = client.voiceConnections.get(guildId);
@@ -110,18 +103,18 @@ function startAutoDisconnectTask(guildId, textChannel, delayMinutes = 5) {
         if (connection && connection.state.status !== 'destroyed') {
             if (!player || player.state.status === AudioPlayerStatus.Idle && (!queue || queue.length === 0)) {
                 textChannel.send(`No activity for ${delayMinutes} minutes. Leaving voice channel.`);
-                connection.destroy(); // Disconnect from voice
+                connection.destroy();
                 client.voiceConnections.delete(guildId);
                 client.musicQueues.delete(guildId);
                 client.audioPlayers.delete(guildId);
                 console.log(`[${textChannel.guild.name}] Auto-disconnected due to inactivity.`);
             } else {
                 console.log(`[${textChannel.guild.name}] Auto-disconnect task aborted: Activity detected.`);
-                client.disconnectTimers.delete(guildId); // Remove timer as activity detected
+                client.disconnectTimers.delete(guildId);
             }
         } else {
             console.log(`[${textChannel.guild.name}] Auto-disconnect task finished, but bot not in voice channel.`);
-            client.disconnectTimers.delete(guildId); // Remove timer if not connected
+            client.disconnectTimers.delete(guildId);
         }
     }, delayMs);
 
@@ -139,11 +132,10 @@ client.once('ready', () => {
 });
 
 client.on('messageCreate', async message => {
-    // Ignore messages from bots and messages that don't start with the prefix
     if (message.author.bot || !message.content.startsWith(COMMAND_PREFIX)) return;
 
     const args = message.content.slice(COMMAND_PREFIX.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase(); // Get the command name
+    const command = args.shift().toLowerCase();
 
     const guildId = message.guild.id;
     const voiceChannel = message.member.voice.channel;
@@ -239,38 +231,48 @@ client.on('messageCreate', async message => {
             }
 
             const searchString = args.join(' ');
-            message.channel.send(`Searching for **${searchString}**...`);
-            console.log(`[${message.guild.name}] Searching for: ${searchString}`);
-
+            // --- START CHANGE ---
+            message.channel.send(`Searching for **${searchString}** on SoundCloud...`);
+            console.log(`[${message.guild.name}] Searching for: ${searchString} on SoundCloud exclusively.`);
+            let results = null;
             try {
-                let results = await play.search(searchString, { limit: 1 });
+                // Explicitly search only SoundCloud tracks
+                results = await play.search(searchString, { limit: 1, source: { soundcloud: "tracks" } });
 
                 if (!results || results.length === 0) {
-                    return message.reply(`Could not find any results for **${searchString}**. Please try a different query.`);
+                    return message.reply(`Could not find any results for **${searchString}** on SoundCloud. Please try a different query.`);
                 }
-                const songInfo = {
-                    title: results[0].title,
-                    url: results[0].url,
-                    requester: message.author,
-                };
-
-                if (!queue) {
-                    queue = [];
-                    client.musicQueues.set(guildId, queue);
-                }
-
-                queue.push(songInfo);
-
-                if (player.state.status !== AudioPlayerStatus.Playing && player.state.status !== AudioPlayerStatus.Buffering) {
-                    await playNextSong(guildId, message.channel);
-                } else {
-                    message.channel.send(`Added **${songInfo.title}** to the queue. Position: \`${queue.length}\`.`);
-                    console.log(`[${message.guild.name}] Added to queue: ${songInfo.title}`);
-                }
+                
+                // Add a more specific check for SoundCloud URL issues if you find common patterns
+                // For now, assume if play.search returns a result, its URL is valid for youtube-dl-exec (even for SoundCloud)
+                // If the 'client_id' error reappears, this is where play-dl is failing internally.
 
             } catch (error) {
-                message.reply(`Could not find or process audio from that link/query: \`${error.message}\`. Please try a different one.`);
-                console.error(`[${message.guild.name}] Error in play command:`, error);
+                // This catch block will likely catch the 'client_id' error if it resurfaces
+                message.reply(`Could not find or process audio from that link/query: \`${error.message}\`. This might be a SoundCloud access issue. Please try a different one.`);
+                console.error(`[${message.guild.name}] Error in play command (SoundCloud search):`, error);
+                return; // Stop processing if search fails
+            }
+            // --- END CHANGE ---
+
+            const songInfo = {
+                title: results[0].title,
+                url: results[0].url,
+                requester: message.author,
+            };
+
+            if (!queue) {
+                queue = [];
+                client.musicQueues.set(guildId, queue);
+            }
+
+            queue.push(songInfo);
+
+            if (player.state.status !== AudioPlayerStatus.Playing && player.state.status !== AudioPlayerStatus.Buffering) {
+                await playNextSong(guildId, message.channel);
+            } else {
+                message.channel.send(`Added **${songInfo.title}** to the queue. Position: \`${queue.length}\`.`);
+                console.log(`[${message.guild.name}] Added to queue: ${songInfo.title}`);
             }
             break;
 
@@ -304,7 +306,7 @@ client.on('messageCreate', async message => {
             }
             startAutoDisconnectTask(guildId, message.channel);
             message.channel.send('Stopped playback.');
-                console.log(`[${message.guild.name}] Playback stopped.`);
+            console.log(`[${message.guild.name}] Playback stopped.`);
             break;
 
         case 'skip':
@@ -341,9 +343,9 @@ client.on('messageCreate', async message => {
             }
             const currentSong = queue && queue.currentSong; // Placeholder if you add this logic
             if (currentSong) {
-                 message.channel.send(`**Now Playing:** \`${currentSong.title}\` (Requested by: ${currentSong.requester.tag})`);
+                message.channel.send(`**Now Playing:** \`${currentSong.title}\` (Requested by: ${currentSong.requester.tag})`);
             } else {
-                 message.channel.send("A song is currently playing!");
+                message.channel.send("A song is currently playing!");
             }
             console.log(`[${message.guild.name}] Now playing status requested.`);
             break;
