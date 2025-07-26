@@ -4,7 +4,6 @@ require('dotenv').config();
 // Import necessary Discord.js classes
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-// const ytdl = require('ytdl-core'); // REMOVED: No longer using ytdl-core
 const play = require('play-dl'); // NEW: Import play-dl
 const ffmpegStatic = require('ffmpeg-static'); // Ensures FFmpeg is available
 
@@ -59,12 +58,10 @@ async function playNextSong(guildId, textChannel) {
     console.log(`[${textChannel.guild.name}] Playing: ${song.title}`);
 
     try {
-        // --- CHANGE START: Using play-dl for stream ---
         const stream = await play.stream(song.url); // play-dl stream function
         const resource = createAudioResource(stream.stream, {
             inputType: stream.type
         });
-        // --- CHANGE END ---
 
         player.play(resource);
 
@@ -208,7 +205,7 @@ client.on('messageCreate', async message => {
                 return message.reply('You need to be in a voice channel to play music!');
             }
             if (!args.length) {
-                return message.reply('You need to provide a YouTube URL or search query!');
+                return message.reply('You need to provide a search query!');
             }
 
             // If bot not in VC, join first
@@ -240,7 +237,7 @@ client.on('messageCreate', async message => {
 
             try {
                 // Use play.search for searching and then play the first result
-                let results = await play.search(searchString, { limit: 1 });
+                let results = await play.search(searchString, { limit: 1 }); // <-- THIS IS THE KEY PART
                 if (!results || results.length === 0) {
                     return message.reply(`Could not find any results for **${searchString}**. Please try a different query.`);
                 }
@@ -248,7 +245,7 @@ client.on('messageCreate', async message => {
                 
                 const songInfo = {
                     title: video.title,
-                    url: video.url,
+                    url: video.url, // <-- USES THE URL FROM THE SEARCH RESULT
                     requester: message.author,
                 };
 
@@ -410,7 +407,7 @@ if (!TOKEN) {
     console.log("\n--- STARTING BOT ---");
     console.log("Using Web Service deployment on Render (requires simple web server for health checks).");
     console.log("Ensure you have installed all prerequisites:");
-    console.log("1. Node.js packages: `npm install discord.js dotenv @discordjs/voice ytdl-core ffmpeg-static @ffmpeg-installer/ffmpeg` (handled by Render's build process)");
+    console.log("1. Node.js packages: `npm install discord.js dotenv @discordjs/voice play-dl ffmpeg-static @ffmpeg-installer/ffmpeg` (handled by Render's build process)");
     console.log("2. FFmpeg: `ffmpeg-static` should provide it, or Render's environment often has it.");
     console.log("3. Discord Bot Intents: 'Message Content Intent' and 'Voice State Intent' enabled in Developer Portal.");
     console.log("4. Bot token is correctly set as an environment variable (DISCORD_BOT_TOKEN).");
