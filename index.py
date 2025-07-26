@@ -425,4 +425,4 @@ def run_web_server():
     """
     # Use 0.0.0.0 to bind to all available network interfaces
     # Render provides PORT, default to 8080 for local testing
-    PORT = int(os.getenv("
+    PORT = int(os.getenv("PORT", "8080")) 
